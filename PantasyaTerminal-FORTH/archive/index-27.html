@@ -3,7 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <title>Pantasya Terminal</title>
-    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffcd75;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h2 { font-size: 14px; margin: 5px; color: #73eff7; }
+        #console-container {
+            border: 4px solid #29366f;
+            background: #1a1c2c;
+            width: 512px;
+            height: 512px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        canvas {
+            width: 512px;
+            height: 512px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+        }
+        #hidden-input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
 </head>
 <body>
 
@@ -22,7 +55,6 @@
     const hiddenInput = document.getElementById('hidden-input');
 
     let fb = ctx.createImageData(128, 128);
-    let pixelBuffer = new Array(128 * 128).fill(0);
     let currentBgColor = 0;
     let cursorVisible = true;
 
@@ -34,7 +66,6 @@
 
     function cls(col = 0) {
         currentBgColor = col % 16;
-        pixelBuffer.fill(currentBgColor);
         let rgb = hexToRgb(PALETTE[currentBgColor]);
         for (let i = 0; i < fb.data.length; i += 4) {
             fb.data[i] = rgb.r;
@@ -47,21 +78,12 @@
     function pset(x, y, col) {
         x = Math.floor(x); y = Math.floor(y);
         if (x < 0 || x > 127 || y < 0 || y > 127) return;
-        let c = col % 16;
-        pixelBuffer[y * 128 + x] = c;
         let idx = (y * 128 + x) * 4;
-        let rgb = hexToRgb(PALETTE[c]);
+        let rgb = hexToRgb(PALETTE[col % 16]);
         fb.data[idx] = rgb.r;
         fb.data[idx+1] = rgb.g;
         fb.data[idx+2] = rgb.b;
         fb.data[idx+3] = 255;
-        updateScreen();
-    }
-
-    function pget(x, y) {
-        x = Math.floor(x); y = Math.floor(y);
-        if (x < 0 || x > 127 || y < 0 || y > 127) return 0;
-        return pixelBuffer[y * 128 + x];
     }
 
     function updateScreen() {
@@ -73,19 +95,7 @@
         return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
     }
 
-    // Direct drawing for UI/text/cursor without mutating pixelBuffer
-    function drawPixelDirect(x, y, col) {
-        x = Math.floor(x); y = Math.floor(y);
-        if (x < 0 || x > 127 || y < 0 || y > 127) return;
-        let idx = (y * 128 + x) * 4;
-        let rgb = hexToRgb(PALETTE[col % 16]);
-        fb.data[idx] = rgb.r;
-        fb.data[idx+1] = rgb.g;
-        fb.data[idx+2] = rgb.b;
-        fb.data[idx+3] = 255;
-    }
-
-    function printCharDirect(ch, x, y, col = 12) {
+    function printChar(ch, x, y, col = 12) {
         let code = typeof ch === 'string' ? ch.charCodeAt(0) : ch;
         let glyph = FONT_DOS_8X8[code] || FONT_DOS_8X8[63];
         if (!glyph) return;
@@ -93,20 +103,20 @@
             let bits = glyph[row];
             for (let bit = 0; bit < 8; bit++) {
                 if ((bits >> (7 - bit)) & 1) {
-                    drawPixelDirect(x + bit, y + row, col);
+                    pset(x + bit, y + row, col);
                 }
             }
         }
     }
 
-    function printTextDirect(str, x, y, col = 12) {
+    function printText(str, x, y, col = 12) {
         str = String(str);
         let cx = x;
         let cy = y;
         for (let i = 0; i < str.length; i++) {
             if (cx + 8 > 128) { cx = 0; cy += 8; }
             if (cy + 8 > 128) break; 
-            printCharDirect(str[i], cx, cy, col);
+            printChar(str[i], cx, cy, col);
             cx += 8;
         }
     }
@@ -115,11 +125,10 @@
     const ROWS = 16; 
     let termBuffer = [];
     let scrollOffset = 0;
-    let lockToBottom = true;
     let currentInput = "";
     let cursorPosition = 0;
     let commandHistory = [];
-    let historyIndex = 0;
+    let historyIndex = -1;
     let promptStartIndex = 0;
 
     let forthStack = [];
@@ -135,26 +144,6 @@
         "DROP": () => { forthStack.pop(); },
         "SWAP": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(b, a); },
         
-        "PSET": () => {
-            let col = forthStack.pop();
-            let y = forthStack.pop();
-            let x = forthStack.pop();
-            if (x !== undefined && y !== undefined && col !== undefined) {
-                pset(x, y, col);
-            } else {
-                writeTerminal("FORTH ERR: STACK UNDERFLOW FOR PSET");
-            }
-        },
-        "PGET": () => {
-            let y = forthStack.pop();
-            let x = forthStack.pop();
-            if (x !== undefined && y !== undefined) {
-                forthStack.push(pget(x, y));
-            } else {
-                writeTerminal("FORTH ERR: STACK UNDERFLOW FOR PGET");
-            }
-        },
-
         "I": () => {
             if (loopStack.length > 0) forthStack.push(loopStack[loopStack.length - 1].index);
             else writeTerminal("FORTH ERR: NO ACTIVE LOOP FOR I");
@@ -172,7 +161,7 @@
             }
         },
         "HELP": () => {
-            writeTerminal("CMDS: HELP, CLS, CHARS, EMIT, PSET, PGET");
+            writeTerminal("CMDS: HELP, CLS, CHARS, EMIT");
         },
         "CHARS": () => {
             let line = "";
@@ -185,7 +174,7 @@
             }
         },
         "CLS": () => { 
-            cls(0); termBuffer = []; scrollOffset = 0; lockToBottom = true; redrawTerminal();
+            cls(0); termBuffer = []; scrollOffset = 0; redrawTerminal();
         }
     };
 
@@ -293,7 +282,6 @@
     function initTerminal() {
         cls(0);
         termBuffer = ["PANTASYA v1.0 + FORTH"];
-        lockToBottom = true;
         scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
         redrawTerminal();
     }
@@ -307,7 +295,6 @@
             }
             termBuffer.push(l);
         });
-        lockToBottom = true;
         scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
         redrawTerminal();
     }
@@ -344,18 +331,7 @@
     }
 
     function redrawTerminal() {
-        // 1. Re-render persistent pixel buffer onto framebuffer
-        for (let y = 0; y < 128; y++) {
-            for (let x = 0; x < 128; x++) {
-                let pCol = pixelBuffer[y * 128 + x];
-                let rgb = hexToRgb(PALETTE[pCol]);
-                let idx = (y * 128 + x) * 4;
-                fb.data[idx] = rgb.r;
-                fb.data[idx+1] = rgb.g;
-                fb.data[idx+2] = rgb.b;
-                fb.data[idx+3] = 255;
-            }
-        }
+        cls(currentBgColor);
 
         let fullPrompt = ">" + currentInput;
         let cursorGlobalIdx = 1 + cursorPosition; 
@@ -363,32 +339,34 @@
         let cursorCol = cursorGlobalIdx % COLS;
 
         let combined = getCombinedLines();
-        let maxScroll = Math.max(0, combined.length - ROWS);
+        let cursorGlobalRow = promptStartIndex + cursorRowOffset;
 
-        if (lockToBottom) {
-            scrollOffset = maxScroll;
-        } else {
-            if (scrollOffset > maxScroll) scrollOffset = maxScroll;
-            if (scrollOffset < 0) scrollOffset = 0;
+        if (cursorGlobalRow < scrollOffset) {
+            scrollOffset = cursorGlobalRow;
+        } else if (cursorGlobalRow >= scrollOffset + ROWS) {
+            scrollOffset = cursorGlobalRow - ROWS + 1;
         }
 
-        // 2. Draw terminal text lines directly onto fb
+        let maxScroll = Math.max(0, combined.length - ROWS);
+        if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+        if (scrollOffset < 0) scrollOffset = 0;
+
         for (let i = 0; i < ROWS; i++) {
             let lineIdx = scrollOffset + i;
             if (lineIdx < combined.length) {
                 let lineText = combined[lineIdx];
                 let isPromptLine = lineIdx >= promptStartIndex;
-                printTextDirect(lineText, 0, i * 8, isPromptLine ? 5 : 13);
+                printText(lineText, 0, i * 8, isPromptLine ? 5 : 13);
             }
         }
 
-        // 3. Draw Blinking Cursor directly without mutating pixelBuffer
+        // Draw Blinking Cursor at Current Input Position
         if (cursorVisible) {
             let visiblePromptStartLine = promptStartIndex - scrollOffset;
             let targetRow = visiblePromptStartLine + cursorRowOffset;
 
             if (targetRow >= 0 && targetRow < ROWS) {
-                printCharDirect(219, cursorCol * 8, targetRow * 8, 12); 
+                printChar(219, cursorCol * 8, targetRow * 8, 12); 
             }
         }
 
@@ -400,29 +378,16 @@
         if (e.key === 'Enter') {
             let cmd = currentInput.trim();
             writeTerminal(">" + currentInput);
-            if (cmd) {
-                commandHistory.push(currentInput);
-            }
-            currentInput = ""; 
-            cursorPosition = 0; 
-            historyIndex = commandHistory.length;
-            lockToBottom = true;
+            if (cmd) commandHistory.push(currentInput);
+            currentInput = ""; cursorPosition = 0; historyIndex = commandHistory.length;
             if (cmd) {
                 try { runForth(cmd); } catch (err) { writeTerminal("ERR: " + err.message); }
             } else { redrawTerminal(); }
             e.preventDefault();
         } else if (e.key === 'Backspace') {
-            lockToBottom = true;
             if (cursorPosition > 0) {
                 currentInput = currentInput.slice(0, cursorPosition - 1) + currentInput.slice(cursorPosition);
                 cursorPosition--;
-                redrawTerminal();
-            }
-            e.preventDefault();
-        } else if (e.key === 'Delete') {
-            lockToBottom = true;
-            if (cursorPosition < currentInput.length) {
-                currentInput = currentInput.slice(0, cursorPosition) + currentInput.slice(cursorPosition + 1);
                 redrawTerminal();
             }
             e.preventDefault();
@@ -438,53 +403,9 @@
                 redrawTerminal();
             }
             e.preventDefault();
-        } else if (e.key === 'ArrowUp') {
-            lockToBottom = true;
-            if (commandHistory.length > 0) {
-                if (historyIndex > 0) {
-                    historyIndex--;
-                } else {
-                    historyIndex = 0;
-                }
-                currentInput = commandHistory[historyIndex];
-                cursorPosition = currentInput.length;
-                redrawTerminal();
-            }
-            e.preventDefault();
-        } else if (e.key === 'ArrowDown') {
-            lockToBottom = true;
-            if (commandHistory.length > 0) {
-                if (historyIndex < commandHistory.length - 1) {
-                    historyIndex++;
-                    currentInput = commandHistory[historyIndex];
-                    cursorPosition = currentInput.length;
-                } else {
-                    historyIndex = commandHistory.length;
-                    currentInput = "";
-                    cursorPosition = 0;
-                }
-                redrawTerminal();
-            }
-            e.preventDefault();
-        } else if (e.key === 'PageUp') {
-            lockToBottom = false;
-            scrollOffset = Math.max(0, scrollOffset - ROWS);
-            redrawTerminal();
-            e.preventDefault();
-        } else if (e.key === 'PageDown') {
-            let maxScroll = Math.max(0, getCombinedLines().length - ROWS);
-            scrollOffset = Math.min(maxScroll, scrollOffset + ROWS);
-            if (scrollOffset >= maxScroll) {
-                lockToBottom = true;
-            }
-            redrawTerminal();
-            e.preventDefault();
         } else if (e.key.length === 1) {
-            lockToBottom = true;
             currentInput = currentInput.slice(0, cursorPosition) + e.key + currentInput.slice(cursorPosition);
-            cursorPosition++; 
-            redrawTerminal(); 
-            e.preventDefault();
+            cursorPosition++; redrawTerminal(); e.preventDefault();
         }
     });
 

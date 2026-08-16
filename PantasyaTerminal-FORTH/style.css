@@ -1,0 +1,32 @@
+body {
+    background-color: #121212;
+    color: #ffcd75;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    margin: 0;
+}
+h2 { font-size: 14px; margin: 5px; color: #73eff7; }
+#console-container {
+    border: 4px solid #29366f;
+    background: #1a1c2c;
+    width: 512px;
+    height: 512px;
+    position: relative;
+    box-shadow: 0 0 20px rgba(0,0,0,0.8);
+}
+canvas {
+    width: 512px;
+    height: 512px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    display: block;
+}
+#hidden-input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
