@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PICO-8 Minimal Terminal</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffcc00;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h2 { font-size: 14px; margin: 5px; color: #29adff; }
+        #console-container {
+            border: 4px solid #1d2b53;
+            background: #000000;
+            width: 512px;
+            height: 512px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        canvas {
+            width: 512px;
+            height: 512px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+        }
+        #terminal-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            max-height: 50%;
+            background: rgba(0, 0, 0, 0.85);
+            box-sizing: border-box;
+            padding: 8px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            font-size: 12px;
+            border-top: 1px solid #29adff;
+        }
+        #output {
+            flex-grow: 1;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-bottom: 4px;
+            color: #c2c3c7;
+        }
+        .input-line {
+            display: flex;
+            align-items: center;
+        }
+        .prompt { color: #00e756; margin-right: 4px; }
+        input {
+            background: transparent;
+            border: none;
+            color: #ffec27;
+            font-family: monospace;
+            font-size: 12px;
+            outline: none;
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>PICO-8 MINI TERMINAL (128x128 @ Zoom 4)</h2>
+    <div id="console-container">
+        <canvas id="screen" width="128" height="128"></canvas>
+        <div id="terminal-overlay">
+            <div id="output">PICO-8 v1.0 - TYPE HELP</div>
+            <div class="input-line">
+                <span class="prompt">&gt;</span>
+                <input type="text" id="commandInput" autofocus autocomplete="off" spellcheck="false">
+            </div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('screen');
+    const ctx = canvas.getContext('2d');
+    const outputDiv = document.getElementById('output');
+    const inputField = document.getElementById('commandInput');
+    const overlay = document.getElementById('terminal-overlay');
+
+    // Official 16-Color PICO-8 Palette
+    const PALETTE = [
+        "#000000", "#1d2b53", "#7e2553", "#008751",
+        "#ab5236", "#5f574f", "#c2c3c7", "#fff1e8",
+        "#ff004d", "#ffa300", "#ffec27", "#00e756",
+        "#29adff", "#83769c", "#ff77a8", "#ffccaa"
+    ];
+
+    // Framebuffer setup
+    let fb = ctx.createImageData(128, 128);
+
+    function cls(col = 0) {
+        let rgb = hexToRgb(PALETTE[col % 16]);
+        for (let i = 0; i < fb.data.length; i += 4) {
+            fb.data[i] = rgb.r;
+            fb.data[i+1] = rgb.g;
+            fb.data[i+2] = rgb.b;
+            fb.data[i+3] = 255;
+        }
+        ctx.putImageData(fb, 0, 0);
+    }
+
+    function pset(x, y, col) {
+        x = Math.floor(x); y = Math.floor(y);
+        if (x < 0 || x > 127 || y < 0 || y > 127) return;
+        let idx = (y * 128 + x) * 4;
+        let rgb = hexToRgb(PALETTE[col % 16]);
+        fb.data[idx] = rgb.r;
+        fb.data[idx+1] = rgb.g;
+        fb.data[idx+2] = rgb.b;
+        fb.data[idx+3] = 255;
+        ctx.putImageData(fb, 0, 0);
+    }
+
+    function rectfill(x1, y1, x2, y2, col) {
+        let rx1 = Math.max(0, Math.min(127, Math.min(x1, x2)));
+        let rx2 = Math.max(0, Math.min(127, Math.max(x1, x2)));
+        let ry1 = Math.max(0, Math.min(127, Math.min(y1, y2)));
+        let ry2 = Math.max(0, Math.min(127, Math.max(y1, y2)));
+        let rgb = hexToRgb(PALETTE[col % 16]);
+
+        for (let y = ry1; y <= ry2; y++) {
+            for (let x = rx1; x <= rx2; x++) {
+                let idx = (y * 128 + x) * 4;
+                fb.data[idx] = rgb.r;
+                fb.data[idx+1] = rgb.g;
+                fb.data[idx+2] = rgb.b;
+                fb.data[idx+3] = 255;
+            }
+        }
+        ctx.putImageData(fb, 0, 0);
+    }
+
+    function circfill(cx, cy, r, col) {
+        cx = Math.floor(cx); cy = Math.floor(cy); r = Math.floor(r);
+        let rgb = hexToRgb(PALETTE[col % 16]);
+        for (let y = cy - r; y <= cy + r; y++) {
+            for (let x = cx - r; x <= cx + r; x++) {
+                if ((x - cx) ** 2 + (y - cy) ** 2 <= r ** 2) {
+                    if (x >= 0 && x < 128 && y >= 0 && y < 128) {
+                        let idx = (y * 128 + x) * 4;
+                        fb.data[idx] = rgb.r;
+                        fb.data[idx+1] = rgb.g;
+                        fb.data[idx+2] = rgb.b;
+                        fb.data[idx+3] = 255;
+                    }
+                }
+            }
+        }
+        ctx.putImageData(fb, 0, 0);
+    }
+
+    function hexToRgb(hex) {
+        let bigint = parseInt(hex.slice(1), 16);
+        return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+    }
+
+    // Runtime loop hooks
+    let runningLoop = false;
+    let _update = null;
+    let _draw = null;
+
+    function gameLoop() {
+        if (!runningLoop) return;
+        try {
+            if (_update) _update();
+            if (_draw) _draw();
+        } catch (e) {
+            print("RUNTIME ERROR: " + e.message);
+            stopLoop();
+        }
+        requestAnimationFrame(gameLoop);
+    }
+
+    function stopLoop() {
+        runningLoop = false;
+        _update = null;
+        _draw = null;
+    }
+
+    function print(text) {
+        outputDiv.innerText += "\n" + text;
+        overlay.scrollTop = overlay.scrollHeight;
+    }
+
+    // Command parser
+    inputField.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            let rawCmd = inputField.value;
+            let cmd = rawCmd.trim();
+            if (!cmd) return;
+
+            print("> " + rawCmd);
+            inputField.value = "";
+
+            // Stop loop on new commands
+            if (runningLoop && cmd.toUpperCase() !== "STOP") {
+                stopLoop();
+                print("[Stopped active loop]");
+            }
+
+            processCommand(cmd);
+        }
+    });
+
+    function processCommand(cmd) {
+        let upper = cmd.toUpperCase();
+        
+        if (upper === "HELP") {
+            print("COMMANDS:\n CLS [COL] - CLEAR SCREEN\n PSET X,Y,COL - DRAW PIXEL\n RECTFILL X1,Y1,X2,Y2,COL\n CIRCFILL X,Y,R,COL\n PAL - VIEW PALETTE\n RUNCODE - START LOOP EXAMPLES\n STOP - HALT LOOP");
+        } 
+        else if (upper.startsWith("CLS")) {
+            let parts = cmd.split(" ");
+            let col = parts[1] ? parseInt(parts[1]) : 0;
+            cls(col);
+            print("CLEARED SCREEN TO " + col);
+        }
+        else if (upper === "PAL") {
+            print("PALETTE:");
+            PALETTE.forEach((hex, i) => print(` ${i}: ${hex}`));
+        }
+        else if (upper === "STOP") {
+            stopLoop();
+            print("STOPPED.");
+        }
+        else if (upper === "RUNCODE") {
+            stopLoop();
+            // Demo interactive loop script
+            let x = 64, y = 64;
+            cls(1);
+            print("Running sample animation loop...");
+            _update = () => {
+                x += (Math.random() - 0.5) * 4;
+                y += (Math.random() - 0.5) * 4;
+                x = Math.max(4, Math.min(124, x));
+                y = Math.max(4, Math.min(124, y));
+            };
+            _draw = () => {
+                cls(1);
+                circfill(x, y, 6, 8);
+                circfill(x+2, y-2, 2, 7);
+            };
+            runningLoop = true;
+            requestAnimationFrame(gameLoop);
+        }
+        else {
+            try {
+                // Allow direct JS evaluation for quick drawing primitives
+                let result = eval(cmd);
+                if (result !== undefined) print(String(result));
+            } catch (err) {
+                print("ERR: " + err.message);
+            }
+        }
+    }
+
+    // Initial clear
+    cls(0);
+</script>
+</body>
+</html>
