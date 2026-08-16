@@ -163,18 +163,17 @@
                 writeTerminal("FORTH ERR: STACK UNDERFLOW");
             }
         },
-        "WORDS": () => {
-            let keys = Object.keys(forthDictionary);
+        "HELP": () => {
+            writeTerminal("CMDS: HELP, CLS, CHARS, EMIT, PSET, PGET");
+        },
+        "CHARS": () => {
             let line = "";
-            keys.forEach((w, idx) => {
-                line += w + " ";
-                if ((idx + 1) % 8 === 0) {
-                    writeTerminal(line);
-                    line = "";
+            for (let i = 0; i < 256; i++) {
+                line += String.fromCharCode(i);
+                if (i % 16 === 15) { 
+                    writeTerminal(line); 
+                    line = ""; 
                 }
-            });
-            if (line.trim().length > 0) {
-                writeTerminal(line);
             }
         },
         "CLS": () => { 
@@ -337,6 +336,7 @@
     }
 
     function redrawTerminal() {
+        // 1. Fill base framebuffer with background color
         let bgRgb = hexToRgb(PALETTE[currentBgColor]);
         for (let i = 0; i < fb.data.length; i += 4) {
             fb.data[i] = bgRgb.r;
@@ -360,6 +360,7 @@
             if (scrollOffset < 0) scrollOffset = 0;
         }
 
+        // 2. Draw terminal text lines (Background Layer)
         for (let i = 0; i < ROWS; i++) {
             let lineIdx = scrollOffset + i;
             if (lineIdx < combined.length) {
@@ -369,6 +370,7 @@
             }
         }
 
+        // 3. Draw Blinking Cursor in background layer
         if (cursorVisible) {
             let visiblePromptStartLine = promptStartIndex - scrollOffset;
             let targetRow = visiblePromptStartLine + cursorRowOffset;
@@ -378,6 +380,7 @@
             }
         }
 
+        // 4. Overlay Graphics (PSET pixels) IN FRONT OF text and cursor
         for (let y = 0; y < 128; y++) {
             for (let x = 0; x < 128; x++) {
                 let idx = y * 128 + x;
