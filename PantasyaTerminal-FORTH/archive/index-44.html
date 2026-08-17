@@ -27,7 +27,7 @@
     let currentBgColor = 0;
     let cursorVisible = true;
 
-    // Cursor blink timer[cite: 2]
+    // Cursor blink timer
     setInterval(() => {
         cursorVisible = !cursorVisible;
         redrawTerminal();
@@ -222,68 +222,6 @@
                 newWordName = tokens[i + 1].toUpperCase();
                 newWordTokens = [];
                 i += 2;
-                continue;
-            }
-
-            // ADDED: IF ... ELSE ... THEN support
-            if (upper === "IF") {
-                let cond = forthStack.pop();
-                if (cond === undefined) {
-                    writeTerminal("FORTH ERR: STACK UNDERFLOW FOR IF");
-                    break;
-                }
-
-                let trueTokens = [];
-                let falseTokens = [];
-                let hasElse = false;
-                let nestLevel = 1;
-                let jIdx = i + 1;
-                let collectingFalse = false;
-
-                while (jIdx < tokens.length) {
-                    let nextTok = tokens[jIdx].toUpperCase();
-                    if (nextTok === "IF") {
-                        nestLevel++;
-                    } else if (nextTok === "THEN") {
-                        nestLevel--;
-                        if (nestLevel === 0) break;
-                    } else if (nextTok === "ELSE" && nestLevel === 1) {
-                        hasElse = true;
-                        collectingFalse = true;
-                        jIdx++;
-                        continue;
-                    }
-
-                    if (collectingFalse) {
-                        falseTokens.push(tokens[jIdx]);
-                    } else {
-                        trueTokens.push(tokens[jIdx]);
-                    }
-                    jIdx++;
-                }
-
-                if (nestLevel > 0) {
-                    writeTerminal("FORTH ERR: UNMATCHED IF");
-                    break;
-                }
-
-                if (cond !== 0) {
-                    try {
-                        runForth(trueTokens);
-                    } catch (err) {
-                        writeTerminal("ERR: " + err.message);
-                        break;
-                    }
-                } else if (hasElse) {
-                    try {
-                        runForth(falseTokens);
-                    } catch (err) {
-                        writeTerminal("ERR: " + err.message);
-                        break;
-                    }
-                }
-
-                i = jIdx + 1;
                 continue;
             }
 
@@ -524,18 +462,7 @@
                 redrawTerminal();
             }
             e.preventDefault();
-        }
-        // ADDED: Home and End key handlers
-        else if (e.key === 'Home') {
-            cursorPosition = 0;
-            redrawTerminal();
-            e.preventDefault();
-        } else if (e.key === 'End') {
-            cursorPosition = currentInput.length;
-            redrawTerminal();
-            e.preventDefault();
-        }
-        else if (e.key === 'ArrowUp') {
+        } else if (e.key === 'ArrowUp') {
             lockToBottom = true;
             if (commandHistory.length > 0) {
                 if (historyIndex > 0) {
