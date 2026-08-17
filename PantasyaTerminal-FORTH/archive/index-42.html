@@ -161,10 +161,6 @@
             if (loopStack.length > 1) forthStack.push(loopStack[loopStack.length - 2].index);
             else writeTerminal("FORTH ERR: NO NESTED LOOP FOR J");
         },
-        "K": () => {
-            if (loopStack.length > 2) forthStack.push(loopStack[loopStack.length - 3].index);
-            else writeTerminal("FORTH ERR: NO TRIPLY NESTED LOOP FOR K");
-        },
         "EMIT": () => {
             let val = forthStack.pop();
             if (val !== undefined) {
@@ -427,7 +423,7 @@
             if (cmd) {
                 try { 
                     runForth(cmd); 
-                    writeInlineTerminal(" OK"); 
+                    writeInlineTerminal(" OK"); // Print OK inline
                 } catch (err) { 
                     writeTerminal("ERR: " + err.message); 
                 }
