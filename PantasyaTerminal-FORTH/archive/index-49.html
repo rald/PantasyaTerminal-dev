@@ -200,6 +200,7 @@
                 writeTerminal(line);
             }
         },
+        // CHANGED: Renamed CLS to CLEAR
         "CLEAR": () => { 
             cls(0); termBuffer = []; scrollOffset = 0; lockToBottom = true; 
         }
@@ -489,26 +490,24 @@
         cursorVisible = true;
         if (e.key === 'Enter') {
             let cmd = currentInput.trim();
+            writeTerminal(">" + currentInput);
+            writeTerminal(""); 
             if (cmd) {
-                writeTerminal(">" + currentInput);
-                writeTerminal(""); 
                 commandHistory.push(currentInput);
-                currentInput = ""; 
-                cursorPosition = 0; 
-                historyIndex = commandHistory.length;
-                lockToBottom = true;
+            }
+            currentInput = ""; 
+            cursorPosition = 0; 
+            historyIndex = commandHistory.length;
+            lockToBottom = true;
+            if (cmd) {
                 try { 
                     runForth(cmd); 
                     writeInlineTerminal(" OK"); 
                 } catch (err) { 
                     writeTerminal("ERR: " + err.message); 
                 }
-            } else {
-                writeTerminal(">");
-                currentInput = "";
-                cursorPosition = 0;
-                historyIndex = commandHistory.length;
-                lockToBottom = true;
+            } else { 
+                redrawTerminal(); 
             }
             e.preventDefault();
         } else if (e.key === 'Backspace') {

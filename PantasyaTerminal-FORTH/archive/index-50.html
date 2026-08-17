@@ -504,11 +504,11 @@
                     writeTerminal("ERR: " + err.message); 
                 }
             } else {
-                writeTerminal(">");
                 currentInput = "";
                 cursorPosition = 0;
                 historyIndex = commandHistory.length;
                 lockToBottom = true;
+                redrawTerminal();
             }
             e.preventDefault();
         } else if (e.key === 'Backspace') {
