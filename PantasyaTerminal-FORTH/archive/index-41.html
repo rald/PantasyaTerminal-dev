@@ -423,7 +423,7 @@
             if (cmd) {
                 try { 
                     runForth(cmd); 
-                    writeInlineTerminal(" OK"); // Print OK inline
+                    writeTerminal("OK"); 
                 } catch (err) { 
                     writeTerminal("ERR: " + err.message); 
                 }

@@ -164,7 +164,7 @@
         "EMIT": () => {
             let val = forthStack.pop();
             if (val !== undefined) {
-                writeInlineTerminal(String.fromCharCode(val));
+                writeTerminal(String.fromCharCode(val));
             } else {
                 writeTerminal("FORTH ERR: STACK UNDERFLOW");
             }
@@ -412,7 +412,7 @@
         if (e.key === 'Enter') {
             let cmd = currentInput.trim();
             writeTerminal(">" + currentInput);
-            writeTerminal(""); 
+            writeTerminal(""); // Print newline after enter command
             if (cmd) {
                 commandHistory.push(currentInput);
             }
@@ -423,7 +423,7 @@
             if (cmd) {
                 try { 
                     runForth(cmd); 
-                    writeInlineTerminal(" OK"); // Print OK inline
+                    writeTerminal("OK"); // Print OK after successful run
                 } catch (err) { 
                     writeTerminal("ERR: " + err.message); 
                 }

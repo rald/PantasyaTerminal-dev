@@ -121,13 +121,7 @@
         "-": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a - b); },
         "*": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a * b); },
         "/": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a / b); },
-        ".": () => { 
-            let val = forthStack.pop(); 
-            writeInlineTerminal(val !== undefined ? String(val) : "STACK EMPTY"); 
-        },
-        "CR": () => { 
-            writeTerminal(""); 
-        },
+        ".": () => { let val = forthStack.pop(); writeTerminal(val !== undefined ? String(val) : "STACK EMPTY"); },
         ".S": () => { writeTerminal("<" + forthStack.length + "> " + forthStack.join(" ")); },
         "DUP": () => { if (forthStack.length > 0) forthStack.push(forthStack[forthStack.length - 1]); },
         "DROP": () => { forthStack.pop(); },
@@ -164,7 +158,7 @@
         "EMIT": () => {
             let val = forthStack.pop();
             if (val !== undefined) {
-                writeInlineTerminal(String.fromCharCode(val));
+                writeTerminal(String.fromCharCode(val));
             } else {
                 writeTerminal("FORTH ERR: STACK UNDERFLOW");
             }
@@ -311,17 +305,6 @@
         redrawTerminal();
     }
 
-    function writeInlineTerminal(text) {
-        let str = String(text);
-        if (termBuffer.length === 0) {
-            termBuffer.push("");
-        }
-        termBuffer[termBuffer.length - 1] += str;
-        lockToBottom = true;
-        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
-        redrawTerminal();
-    }
-
     function getWrappedLines(str) {
         let wrapped = [];
         let s = String(str);
@@ -412,7 +395,6 @@
         if (e.key === 'Enter') {
             let cmd = currentInput.trim();
             writeTerminal(">" + currentInput);
-            writeTerminal(""); 
             if (cmd) {
                 commandHistory.push(currentInput);
             }
@@ -421,15 +403,8 @@
             historyIndex = commandHistory.length;
             lockToBottom = true;
             if (cmd) {
-                try { 
-                    runForth(cmd); 
-                    writeInlineTerminal(" OK"); // Print OK inline
-                } catch (err) { 
-                    writeTerminal("ERR: " + err.message); 
-                }
-            } else { 
-                redrawTerminal(); 
-            }
+                try { runForth(cmd); } catch (err) { writeTerminal("ERR: " + err.message); }
+            } else { redrawTerminal(); }
             e.preventDefault();
         } else if (e.key === 'Backspace') {
             lockToBottom = true;

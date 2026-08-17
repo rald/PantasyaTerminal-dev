@@ -123,7 +123,7 @@
         "/": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a / b); },
         ".": () => { 
             let val = forthStack.pop(); 
-            writeInlineTerminal(val !== undefined ? String(val) : "STACK EMPTY"); 
+            writeInlineTerminal(val !== undefined ? String(val) + " " : "STACK EMPTY "); 
         },
         "CR": () => { 
             writeTerminal(""); 
@@ -164,7 +164,7 @@
         "EMIT": () => {
             let val = forthStack.pop();
             if (val !== undefined) {
-                writeInlineTerminal(String.fromCharCode(val));
+                writeTerminal(String.fromCharCode(val));
             } else {
                 writeTerminal("FORTH ERR: STACK UNDERFLOW");
             }
@@ -412,7 +412,6 @@
         if (e.key === 'Enter') {
             let cmd = currentInput.trim();
             writeTerminal(">" + currentInput);
-            writeTerminal(""); 
             if (cmd) {
                 commandHistory.push(currentInput);
             }
@@ -421,15 +420,8 @@
             historyIndex = commandHistory.length;
             lockToBottom = true;
             if (cmd) {
-                try { 
-                    runForth(cmd); 
-                    writeInlineTerminal(" OK"); // Print OK inline
-                } catch (err) { 
-                    writeTerminal("ERR: " + err.message); 
-                }
-            } else { 
-                redrawTerminal(); 
-            }
+                try { runForth(cmd); } catch (err) { writeTerminal("ERR: " + err.message); }
+            } else { redrawTerminal(); }
             e.preventDefault();
         } else if (e.key === 'Backspace') {
             lockToBottom = true;
