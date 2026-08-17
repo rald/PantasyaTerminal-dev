@@ -133,19 +133,6 @@
         "DROP": () => { forthStack.pop(); },
         "SWAP": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(b, a); },
         
-        "=": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a === b ? -1 : 0); },
-        "<": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a < b ? -1 : 0); },
-        ">": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a > b ? -1 : 0); },
-        "<>": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a !== b ? -1 : 0); },
-        "<=": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a <= b ? -1 : 0); },
-        ">=": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a >= b ? -1 : 0); },
-        "0=": () => { let a = forthStack.pop(); forthStack.push(a === 0 ? -1 : 0); },
-        "0<": () => { let a = forthStack.pop(); forthStack.push(a < 0 ? -1 : 0); },
-        "0>": () => { let a = forthStack.pop(); forthStack.push(a > 0 ? -1 : 0); },
-        "AND": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a & b); },
-        "OR": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a | b); },
-        "INVERT": () => { let a = forthStack.pop(); forthStack.push(~a); },
-
         "PSET": () => {
             let col = forthStack.pop();
             let y = forthStack.pop();
@@ -200,8 +187,7 @@
                 writeTerminal(line);
             }
         },
-        // CHANGED: Renamed CLS to CLEAR
-        "CLEAR": () => { 
+        "CLS": () => { 
             cls(0); termBuffer = []; scrollOffset = 0; lockToBottom = true; 
         }
     };
@@ -239,6 +225,7 @@
                 continue;
             }
 
+            // ADDED: IF ... ELSE ... THEN support
             if (upper === "IF") {
                 let cond = forthStack.pop();
                 if (cond === undefined) {
@@ -537,7 +524,9 @@
                 redrawTerminal();
             }
             e.preventDefault();
-        } else if (e.key === 'Home') {
+        }
+        // ADDED: Home and End key handlers
+        else if (e.key === 'Home') {
             cursorPosition = 0;
             redrawTerminal();
             e.preventDefault();
@@ -545,7 +534,8 @@
             cursorPosition = currentInput.length;
             redrawTerminal();
             e.preventDefault();
-        } else if (e.key === 'ArrowUp') {
+        }
+        else if (e.key === 'ArrowUp') {
             lockToBottom = true;
             if (commandHistory.length > 0) {
                 if (historyIndex > 0) {

@@ -133,6 +133,7 @@
         "DROP": () => { forthStack.pop(); },
         "SWAP": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(b, a); },
         
+        // ADDED: Complete Conditional & Comparison Operators
         "=": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a === b ? -1 : 0); },
         "<": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a < b ? -1 : 0); },
         ">": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a > b ? -1 : 0); },
@@ -200,8 +201,7 @@
                 writeTerminal(line);
             }
         },
-        // CHANGED: Renamed CLS to CLEAR
-        "CLEAR": () => { 
+        "CLS": () => { 
             cls(0); termBuffer = []; scrollOffset = 0; lockToBottom = true; 
         }
     };
