@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pantasya Terminal</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffcd75;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h2 { font-size: 14px; margin: 5px; color: #73eff7; }
+        #console-container {
+            border: 4px solid #29366f;
+            background: #1a1c2c;
+            width: 512px;
+            height: 512px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        canvas {
+            width: 512px;
+            height: 512px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+        }
+        #hidden-input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>PANTASYA TERMINAL</h2>
+    <div id="console-container" onclick="document.getElementById('hidden-input').focus()">
+        <canvas id="screen" width="128" height="128"></canvas>
+        <input type="text" id="hidden-input" autofocus autocomplete="off" spellcheck="false">
+    </div>
+
+<script>
+    const canvas = document.getElementById('screen');
+    const ctx = canvas.getContext('2d');
+    const hiddenInput = document.getElementById('hidden-input');
+
+    // Sweetie 16 Palette by GrafxKid
+    const PALETTE = [
+        "#1a1c2c", "#5d275d", "#b13e53", "#ef7d57",
+        "#ffcd75", "#a7f070", "#38b764", "#257179",
+        "#29366f", "#3b5dc9", "#41a6f6", "#73eff7",
+        "#f4f4f4", "#94b0c2", "#566c86", "#333c57"
+    ];
+
+    // Framebuffer setup (128x128 RGBA)
+    let fb = ctx.createImageData(128, 128);
+    let currentBgColor = 0;
+    let cursorVisible = true;
+
+    function cls(col = 0) {
+        currentBgColor = col % 16;
+        let rgb = hexToRgb(PALETTE[currentBgColor]);
+        for (let i = 0; i < fb.data.length; i += 4) {
+            fb.data[i] = rgb.r;
+            fb.data[i+1] = rgb.g;
+            fb.data[i+2] = rgb.b;
+            fb.data[i+3] = 255;
+        }
+    }
+
+    function pset(x, y, col) {
+        x = Math.floor(x); y = Math.floor(y);
+        if (x < 0 || x > 127 || y < 0 || y > 127) return;
+        let idx = (y * 128 + x) * 4;
+        let rgb = hexToRgb(PALETTE[col % 16]);
+        fb.data[idx] = rgb.r;
+        fb.data[idx+1] = rgb.g;
+        fb.data[idx+2] = rgb.b;
+        fb.data[idx+3] = 255;
+    }
+
+    function updateScreen() {
+        ctx.putImageData(fb, 0, 0);
+    }
+
+    function hexToRgb(hex) {
+        let bigint = parseInt(hex.slice(1), 16);
+        return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+    }
+
+    // Classic IBM VGA/BIOS 8x8 Font Bitmaps (ASCII 32 to 126)
+    const FONT_IBM_8X8 = {
+        32: [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+        33: [0x18,0x3C,0x3C,0x18,0x18,0x00,0x18,0x00],
+        34: [0x66,0x66,0x24,0x00,0x00,0x00,0x00,0x00],
+        35: [0x36,0x36,0x7F,0x36,0x7F,0x36,0x36,0x00],
+        36: [0x18,0x3E,0x60,0x3C,0x06,0x7C,0x18,0x00],
+        37: [0x63,0x63,0x0C,0x18,0x30,0x63,0x63,0x00],
+        38: [0x30,0x68,0x68,0x30,0x5B,0x66,0x3B,0x00],
+        39: [0x18,0x18,0x0C,0x00,0x00,0x00,0x00,0x00],
+        40: [0x0C,0x18,0x30,0x30,0x30,0x18,0x0C,0x00],
+        41: [0x30,0x18,0x0C,0x0C,0x0C,0x18,0x30,0x00],
+        42: [0x00,0x24,0x66,0xFF,0x66,0x24,0x00,0x00],
+        43: [0x00,0x18,0x18,0x7E,0x18,0x18,0x00,0x00],
+        44: [0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x30],
+        45: [0x00,0x00,0x00,0x7E,0x00,0x00,0x00,0x00],
+        46: [0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00],
+        47: [0x03,0x06,0x0C,0x18,0x30,0x60,0xC0,0x00],
+        48: [0x3C,0x66,0x6E,0x76,0x66,0x66,0x3C,0x00],
+        49: [0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0x00],
+        50: [0x3C,0x66,0x06,0x1C,0x30,0x60,0x7E,0x00],
+        51: [0x3C,0x66,0x06,0x1C,0x06,0x66,0x3C,0x00],
+        52: [0x0C,0x1C,0x34,0x64,0x7E,0x04,0x04,0x00],
+        53: [0x7E,0x60,0x7C,0x06,0x06,0x66,0x3C,0x00],
+        54: [0x3C,0x60,0x7C,0x66,0x66,0x66,0x3C,0x00],
+        55: [0x7E,0x06,0x0C,0x18,0x30,0x30,0x30,0x00],
+        56: [0x3C,0x66,0x66,0x3C,0x66,0x66,0x3C,0x00],
+        57: [0x3C,0x66,0x66,0x3E,0x06,0x0C,0x38,0x00],
+        58: [0x00,0x18,0x18,0x00,0x00,0x18,0x18,0x00],
+        59: [0x00,0x18,0x18,0x00,0x00,0x18,0x18,0x30],
+        60: [0x0C,0x18,0x30,0x60,0x30,0x18,0x0C,0x00],
+        61: [0x00,0x00,0x7E,0x00,0x00,0x7E,0x00,0x00],
+        62: [0x30,0x18,0x0C,0x06,0x0C,0x18,0x30,0x00],
+        63: [0x3C,0x66,0x0C,0x18,0x18,0x00,0x18,0x00],
+        64: [0x3C,0x66,0x6E,0x6A,0x6E,0x60,0x3C,0x00],
+        65: [0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0x00],
+        66: [0x7C,0x66,0x66,0x7C,0x66,0x66,0x7C,0x00],
+        67: [0x3C,0x66,0x60,0x60,0x60,0x66,0x3C,0x00],
+        68: [0x78,0x6C,0x66,0x66,0x66,0x6C,0x78,0x00],
+        69: [0x7E,0x60,0x60,0x7C,0x60,0x60,0x7E,0x00],
+        70: [0x7E,0x60,0x60,0x7C,0x60,0x60,0x60,0x00],
+        71: [0x3C,0x66,0x60,0x6E,0x66,0x66,0x3C,0x00],
+        72: [0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0x00],
+        73: [0x3C,0x18,0x18,0x18,0x18,0x18,0x3C,0x00],
+        74: [0x1E,0x0C,0x0C,0x0C,0x0C,0x6C,0x38,0x00],
+        75: [0x66,0x6C,0x78,0x70,0x78,0x6C,0x66,0x00],
+        76: [0x60,0x60,0x60,0x60,0x60,0x60,0x7E,0x00],
+        77: [0x63,0x77,0x7F,0x6B,0x63,0x63,0x63,0x00],
+        78: [0x66,0x76,0x7E,0x6E,0x66,0x66,0x66,0x00],
+        79: [0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0x00],
+        80: [0x7C,0x66,0x66,0x7C,0x60,0x60,0x60,0x00],
+        81: [0x3C,0x66,0x66,0x66,0x6A,0x6C,0x3A,0x00],
+        82: [0x7C,0x66,0x66,0x7C,0x78,0x6C,0x66,0x00],
+        83: [0x3C,0x66,0x60,0x3C,0x06,0x66,0x3C,0x00],
+        84: [0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0x00],
+        85: [0x66,0x66,0x66,0x66,0x66,0x66,0x3C,0x00],
+        86: [0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0x00],
+        87: [0x63,0x63,0x63,0x6B,0x7F,0x77,0x63,0x00],
+        88: [0x66,0x66,0x3C,0x18,0x3C,0x66,0x66,0x00],
+        89: [0x66,0x66,0x66,0x3C,0x18,0x18,0x18,0x00],
+        90: [0x7E,0x06,0x0C,0x18,0x30,0x60,0x7E,0x00],
+        91: [0x3C,0x30,0x30,0x30,0x30,0x30,0x3C,0x00],
+        92: [0xC0,0x60,0x30,0x18,0x0C,0x06,0x03,0x00],
+        93: [0x3C,0x0C,0x0C,0x0C,0x0C,0x0C,0x3C,0x00],
+        94: [0x18,0x3C,0x66,0x00,0x00,0x00,0x00,0x00],
+        95: [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF],
+        96: [0x30,0x18,0x0C,0x00,0x00,0x00,0x00,0x00],
+        97: [0x00,0x00,0x3C,0x06,0x3E,0x66,0x3E,0x00],
+        98: [0x60,0x60,0x7C,0x66,0x66,0x66,0x7C,0x00],
+        99: [0x00,0x00,0x3C,0x60,0x60,0x60,0x3C,0x00],
+        100: [0x06,0x06,0x3E,0x66,0x66,0x66,0x3E,0x00],
+        101: [0x00,0x00,0x3C,0x66,0x7E,0x60,0x3C,0x00],
+        102: [0x1C,0x30,0x7C,0x30,0x30,0x30,0x30,0x00],
+        103: [0x00,0x00,0x3E,0x66,0x66,0x3E,0x06,0x3C],
+        104: [0x60,0x60,0x7C,0x66,0x66,0x66,0x66,0x00],
+        105: [0x18,0x00,0x38,0x18,0x18,0x18,0x3C,0x00],
+        106: [0x06,0x00,0x06,0x06,0x06,0x66,0x66,0x3C],
+        107: [0x60,0x60,0x6C,0x78,0x70,0x6C,0x66,0x00],
+        108: [0x38,0x18,0x18,0x18,0x18,0x18,0x3C,0x00],
+        109: [0x00,0x00,0xEC,0xFE,0xD6,0xD6,0xD6,0x00],
+        110: [0x00,0x00,0x7C,0x66,0x66,0x66,0x66,0x00],
+        111: [0x00,0x00,0x3C,0x66,0x66,0x66,0x3C,0x00],
+        112: [0x00,0x00,0x7C,0x66,0x66,0x7C,0x60,0x60],
+        113: [0x00,0x00,0x3E,0x66,0x66,0x3E,0x06,0x06],
+        114: [0x00,0x00,0x7C,0x66,0x60,0x60,0x60,0x00],
+        115: [0x00,0x00,0x3C,0x60,0x3C,0x06,0x7C,0x00],
+        116: [0x30,0x30,0x7C,0x30,0x30,0x30,0x1C,0x00],
+        117: [0x00,0x00,0x66,0x66,0x66,0x66,0x3E,0x00],
+        118: [0x00,0x00,0x66,0x66,0x66,0x3C,0x18,0x00],
+        119: [0x00,0x00,0x63,0x6B,0x7F,0x7F,0x36,0x00],
+        120: [0x00,0x00,0x66,0x3C,0x18,0x3C,0x66,0x66,0x00],
+        121: [0x00,0x00,0x66,0x66,0x66,0x3E,0x0C,0x78],
+        122: [0x00,0x00,0x7E,0x0C,0x18,0x30,0x7E,0x00]
+    };
+
+    function printChar(ch, x, y, col = 12) {
+        let code = ch.charCodeAt(0);
+        let glyph = FONT_IBM_8X8[code] || FONT_IBM_8X8[63];
+        for (let row = 0; row < 8; row++) {
+            let bits = glyph[row];
+            for (let bit = 0; bit < 8; bit++) {
+                if ((bits >> (7 - bit)) & 1) {
+                    pset(x + bit, y + row, col);
+                }
+            }
+        }
+    }
+
+    function printText(str, x, y, col = 12) {
+        str = String(str);
+        let cx = x;
+        for (let i = 0; i < str.length; i++) {
+            if (cx > 120) { cx = x; y += 8; }
+            printChar(str[i], cx, y, col);
+            cx += 8;
+        }
+    }
+
+    // Terminal State & Scrolling History
+    const COLS = 16;
+    const ROWS = 16; 
+    let termBuffer = [];
+    let scrollOffset = 0;
+    
+    let currentInput = "";
+    let cursorPosition = 0;
+    let commandHistory = [];
+    let historyIndex = -1;
+
+    // Forth Machine State & Integrated Commands
+    let forthStack = [];
+    let forthDictionary = {
+        "+": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a + b); },
+        "-": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a - b); },
+        "*": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a * b); },
+        "/": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(Math.trunc(a / b)); },
+        ".": () => { let val = forthStack.pop(); writeTerminal(val !== undefined ? String(val) : "STACK EMPTY"); },
+        ".S": () => { writeTerminal("<" + forthStack.length + "> " + forthStack.join(" ")); },
+        "DUP": () => { if (forthStack.length > 0) forthStack.push(forthStack[forthStack.length - 1]); },
+        "DROP": () => { forthStack.pop(); },
+        "SWAP": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(b, a); },
+        
+        // Integrated Commands
+        "HELP": () => {
+            writeTerminal("CMDS: HELP, CLS, PAL, REBOOT");
+            writeTerminal("FORTH STACK LANG READY");
+        },
+        "CLS": () => { 
+            let col = forthStack.length > 0 ? forthStack.pop() : 0; 
+            cls(col); 
+        },
+        "PAL": () => {
+            PALETTE.forEach((hex, i) => writeTerminal(`${String(i).padStart(2)}: ${hex}`));
+        },
+        "REBOOT": () => {
+            writeTerminal("REBOOTING...");
+            setTimeout(() => {
+                commandHistory = [];
+                historyIndex = -1;
+                currentBgColor = 0;
+                forthStack = [];
+                initTerminal();
+            }, 600);
+        },
+
+        "PSET": () => { 
+            let col = forthStack.pop(), y = forthStack.pop(), x = forthStack.pop();
+            pset(x, y, col);
+            updateScreen();
+        }
+    };
+    let compiling = false;
+    let newWordName = "";
+    let newWordTokens = [];
+
+    function runForth(line) {
+        let tokens = line.trim().split(/\s+/);
+        for (let i = 0; i < tokens.length; i++) {
+            let tok = tokens[i];
+            if (!tok) continue;
+
+            if (compiling) {
+                if (tok === ";") {
+                    forthDictionary[newWordName] = [...newWordTokens];
+                    compiling = false;
+                    writeTerminal("compiled: " + newWordName);
+                } else {
+                    newWordTokens.push(tok);
+                }
+                continue;
+            }
+
+            if (tok === ":") {
+                compiling = true;
+                newWordName = tokens[++i].toUpperCase();
+                newWordTokens = [];
+                continue;
+            }
+
+            let upper = tok.toUpperCase();
+            if (forthDictionary[upper] !== undefined) {
+                let entry = forthDictionary[upper];
+                if (typeof entry === "function") {
+                    entry();
+                } else if (Array.isArray(entry)) {
+                    runForth(entry.join(" "));
+                }
+            } else {
+                let num = parseFloat(tok);
+                if (!isNaN(num)) {
+                    forthStack.push(num);
+                } else {
+                    writeTerminal("FORTH ERR: " + tok + "?");
+                    break;
+                }
+            }
+        }
+    }
+
+    function initTerminal() {
+        cls(0);
+        termBuffer = [
+            "PANTASYA FORTH v1.0"
+        ];
+        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+        redrawTerminal();
+    }
+
+    function writeTerminal(text) {
+        let lines = String(text).split("\n");
+        lines.forEach(l => {
+            while(l.length > COLS) {
+                termBuffer.push(l.slice(0, COLS));
+                l = l.slice(COLS);
+            }
+            termBuffer.push(l);
+        });
+        
+        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+        redrawTerminal();
+    }
+
+    function getCombinedLines() {
+        let fullPrompt = ">" + currentInput;
+        let promptLines = [];
+        for (let i = 0; i < fullPrompt.length; i += COLS) {
+            promptLines.push(fullPrompt.slice(i, i + COLS));
+        }
+        if (promptLines.length === 0) promptLines = [">"];
+        return termBuffer.concat(promptLines);
+    }
+
+    function redrawTerminal() {
+        cls(currentBgColor);
+
+        let combined = getCombinedLines();
+        let maxScroll = Math.max(0, combined.length - ROWS);
+        if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+        if (scrollOffset < 0) scrollOffset = 0;
+
+        for (let i = 0; i < ROWS; i++) {
+            let lineIdx = scrollOffset + i;
+            if (lineIdx < combined.length) {
+                let lineText = combined[lineIdx];
+                let isPromptLine = lineIdx >= termBuffer.length;
+                let col = isPromptLine ? 5 : 13;
+                printText(lineText, 0, i * 8, col);
+            }
+        }
+
+        if (cursorVisible) {
+            let absoluteCursorIdx = cursorPosition + 1;
+            let promptCharLine = Math.floor(absoluteCursorIdx / COLS);
+            let promptCharCol = absoluteCursorIdx % COLS;
+            
+            let promptStartBufferIdx = termBuffer.length;
+            let cursorScreenLineIndex = (promptStartBufferIdx + promptCharLine) - scrollOffset;
+
+            if (cursorScreenLineIndex >= 0 && cursorScreenLineIndex < ROWS) {
+                let cursorX = promptCharCol * 8;
+                let cursorY = cursorScreenLineIndex * 8;
+                if (cursorX < 128) {
+                    let charUnderCursor = " ";
+                    let currentPromptLines = getCombinedLines();
+                    let targetLineText = currentPromptLines[promptStartBufferIdx + promptCharLine];
+                    if (targetLineText && targetLineText[promptCharCol]) {
+                        charUnderCursor = targetLineText[promptCharCol];
+                    }
+                    
+                    for (let cy = 0; cy < 8; cy++) {
+                        for (let cx = 0; cx < 8; cx++) {
+                            pset(cursorX + cx, cursorY + cy, 5);
+                        }
+                    }
+                    if (charUnderCursor !== " ") {
+                        printChar(charUnderCursor, cursorX, cursorY, 0);
+                    }
+                }
+            }
+        }
+
+        updateScreen();
+    }
+
+    setInterval(() => {
+        cursorVisible = !cursorVisible;
+        redrawTerminal();
+    }, 400);
+
+    hiddenInput.addEventListener('keydown', (e) => {
+        cursorVisible = true;
+
+        if (e.key === 'Enter') {
+            let cmd = currentInput.trim();
+            writeTerminal(">" + currentInput);
+            if (cmd) commandHistory.push(currentInput);
+            currentInput = "";
+            cursorPosition = 0;
+            historyIndex = commandHistory.length;
+            
+            if (cmd) {
+                try {
+                    runForth(cmd);
+                } catch (err) {
+                    writeTerminal("ERR: " + err.message);
+                }
+            } else {
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'Backspace') {
+            if (cursorPosition > 0) {
+                currentInput = currentInput.slice(0, cursorPosition - 1) + currentInput.slice(cursorPosition);
+                cursorPosition--;
+                scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowLeft' && cursorPosition > 0) {
+            cursorPosition--; redrawTerminal(); e.preventDefault();
+        } else if (e.key === 'ArrowRight' && cursorPosition < currentInput.length) {
+            cursorPosition++; redrawTerminal(); e.preventDefault();
+        } else if (e.key === 'ArrowUp') {
+            if (commandHistory.length > 0) {
+                if (historyIndex > 0) historyIndex--;
+                currentInput = commandHistory[historyIndex] || "";
+                cursorPosition = currentInput.length;
+                scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowDown') {
+            if (commandHistory.length > 0) {
+                if (historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    currentInput = commandHistory[historyIndex];
+                } else {
+                    historyIndex = commandHistory.length;
+                    currentInput = "";
+                }
+                cursorPosition = currentInput.length;
+                scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key.length === 1) {
+            currentInput = currentInput.slice(0, cursorPosition) + e.key + currentInput.slice(cursorPosition);
+            cursorPosition++;
+            scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+            redrawTerminal();
+            e.preventDefault();
+        }
+    });
+
+    initTerminal();
+</script>
+</body>
+</html>

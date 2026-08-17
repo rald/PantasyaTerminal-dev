@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pantasya Terminal</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h2>PANTASYA TERMINAL</h2>
+    <div id="console-container" onclick="document.getElementById('hidden-input').focus()">
+        <canvas id="screen" width="128" height="128"></canvas>
+        <input type="text" id="hidden-input" autofocus autocomplete="off" spellcheck="false">
+    </div>
+
+<script src="palette.js"></script>
+<script src="font.js"></script>
+
+<script>
+    const canvas = document.getElementById('screen');
+    const ctx = canvas.getContext('2d');
+    const hiddenInput = document.getElementById('hidden-input');
+
+    let fb = ctx.createImageData(128, 128);
+    let pixelBuffer = new Array(128 * 128).fill(0);
+    let pixelDrawn = new Array(128 * 128).fill(false);
+    let currentBgColor = 0;
+    let cursorVisible = true;
+
+    // Cursor blink timer
+    setInterval(() => {
+        cursorVisible = !cursorVisible;
+        redrawTerminal();
+    }, 500);
+
+    function cls(col = 0) {
+        currentBgColor = col % 16;
+        pixelBuffer.fill(currentBgColor);
+        pixelDrawn.fill(false);
+        redrawTerminal();
+    }
+
+    function pset(x, y, col) {
+        x = Math.floor(x); y = Math.floor(y);
+        if (x < 0 || x > 127 || y < 0 || y > 127) return;
+        let c = col % 16;
+        let idx = y * 128 + x;
+        pixelBuffer[idx] = c;
+        pixelDrawn[idx] = true;
+        redrawTerminal();
+    }
+
+    function pget(x, y) {
+        x = Math.floor(x); y = Math.floor(y);
+        if (x < 0 || x > 127 || y < 0 || y > 127) return 0;
+        let idx = y * 128 + x;
+        return pixelDrawn[idx] ? pixelBuffer[idx] : currentBgColor;
+    }
+
+    function updateScreen() {
+        ctx.putImageData(fb, 0, 0);
+    }
+
+    function hexToRgb(hex) {
+        let bigint = parseInt(hex.slice(1), 16);
+        return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+    }
+
+    function drawPixelDirect(x, y, col) {
+        x = Math.floor(x); y = Math.floor(y);
+        if (x < 0 || x > 127 || y < 0 || y > 127) return;
+        let idx = (y * 128 + x) * 4;
+        let rgb = hexToRgb(PALETTE[col % 16]);
+        fb.data[idx] = rgb.r;
+        fb.data[idx+1] = rgb.g;
+        fb.data[idx+2] = rgb.b;
+        fb.data[idx+3] = 255;
+    }
+
+    function printCharDirect(ch, x, y, col = 12) {
+        let code = typeof ch === 'string' ? ch.charCodeAt(0) : ch;
+        let glyph = FONT_DOS_8X8[code] || FONT_DOS_8X8[63];
+        if (!glyph) return;
+        for (let row = 0; row < 8; row++) {
+            let bits = glyph[row];
+            for (let bit = 0; bit < 8; bit++) {
+                if ((bits >> (7 - bit)) & 1) {
+                    drawPixelDirect(x + bit, y + row, col);
+                }
+            }
+        }
+    }
+
+    function printTextDirect(str, x, y, col = 12) {
+        str = String(str);
+        let cx = x;
+        let cy = y;
+        for (let i = 0; i < str.length; i++) {
+            if (cx + 8 > 128) { cx = 0; cy += 8; }
+            if (cy + 8 > 128) break; 
+            printCharDirect(str[i], cx, cy, col);
+            cx += 8;
+        }
+    }
+
+    const COLS = 16;
+    const ROWS = 16; 
+    let termBuffer = [];
+    let scrollOffset = 0;
+    let lockToBottom = true;
+    let currentInput = "";
+    let cursorPosition = 0;
+    let commandHistory = [];
+    let historyIndex = 0;
+    let promptStartIndex = 0;
+
+    let forthStack = [];
+    let loopStack = []; 
+    let forthDictionary = {
+        "+": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a + b); },
+        "-": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a - b); },
+        "*": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a * b); },
+        "/": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a / b); },
+        ".": () => { 
+            let val = forthStack.pop(); 
+            writeInlineTerminal(val !== undefined ? String(val) : "STACK EMPTY"); 
+        },
+        "CR": () => { 
+            writeTerminal(""); 
+        },
+        ".S": () => { writeTerminal("<" + forthStack.length + "> " + forthStack.join(" ")); },
+        "DUP": () => { if (forthStack.length > 0) forthStack.push(forthStack[forthStack.length - 1]); },
+        "DROP": () => { forthStack.pop(); },
+        "SWAP": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(b, a); },
+        
+        "PSET": () => {
+            let col = forthStack.pop();
+            let y = forthStack.pop();
+            let x = forthStack.pop();
+            if (x !== undefined && y !== undefined && col !== undefined) {
+                pset(x, y, col);
+            } else {
+                writeTerminal("FORTH ERR: STACK UNDERFLOW FOR PSET");
+            }
+        },
+        "PGET": () => {
+            let y = forthStack.pop();
+            let x = forthStack.pop();
+            if (x !== undefined && y !== undefined) {
+                forthStack.push(pget(x, y));
+            } else {
+                writeTerminal("FORTH ERR: STACK UNDERFLOW FOR PGET");
+            }
+        },
+
+        "I": () => {
+            if (loopStack.length > 0) forthStack.push(loopStack[loopStack.length - 1].index);
+            else writeTerminal("FORTH ERR: NO ACTIVE LOOP FOR I");
+        },
+        "J": () => {
+            if (loopStack.length > 1) forthStack.push(loopStack[loopStack.length - 2].index);
+            else writeTerminal("FORTH ERR: NO NESTED LOOP FOR J");
+        },
+        "EMIT": () => {
+            let val = forthStack.pop();
+            if (val !== undefined) {
+                writeTerminal(String.fromCharCode(val));
+            } else {
+                writeTerminal("FORTH ERR: STACK UNDERFLOW");
+            }
+        },
+        "WORDS": () => {
+            let keys = Object.keys(forthDictionary);
+            let line = "";
+            keys.forEach((w, idx) => {
+                line += w + " ";
+                if ((idx + 1) % 8 === 0) {
+                    writeTerminal(line);
+                    line = "";
+                }
+            });
+            if (line.trim().length > 0) {
+                writeTerminal(line);
+            }
+        },
+        "CLS": () => { 
+            cls(0); termBuffer = []; scrollOffset = 0; lockToBottom = true; 
+        }
+    };
+
+    let compiling = false;
+    let newWordName = "";
+    let newWordTokens = [];
+
+    function runForth(tokensOrString) {
+        let tokens = typeof tokensOrString === 'string' ? tokensOrString.trim().split(/\s+/) : tokensOrString;
+        
+        let i = 0;
+        while (i < tokens.length) {
+            let tok = tokens[i];
+            if (!tok) { i++; continue; }
+            let upper = tok.toUpperCase();
+
+            if (compiling) {
+                if (upper === ";") {
+                    forthDictionary[newWordName] = [...newWordTokens];
+                    compiling = false;
+                    writeTerminal("compiled: " + newWordName);
+                } else {
+                    newWordTokens.push(tok);
+                }
+                i++;
+                continue;
+            }
+
+            if (upper === ":") {
+                compiling = true;
+                newWordName = tokens[i + 1].toUpperCase();
+                newWordTokens = [];
+                i += 2;
+                continue;
+            }
+
+            if (upper === "DO") {
+                let start = forthStack.pop();
+                let limit = forthStack.pop();
+                if (limit === undefined || start === undefined) {
+                    writeTerminal("FORTH ERR: STACK UNDERFLOW FOR DO");
+                    break;
+                }
+
+                let bodyTokens = [];
+                let nestLevel = 1;
+                let jIdx = i + 1;
+                while (jIdx < tokens.length) {
+                    let nextTok = tokens[jIdx].toUpperCase();
+                    if (nextTok === "DO") nestLevel++;
+                    else if (nextTok === "LOOP") {
+                        nestLevel--;
+                        if (nestLevel === 0) break;
+                    }
+                    bodyTokens.push(tokens[jIdx]);
+                    jIdx++;
+                }
+
+                if (nestLevel > 0) {
+                    writeTerminal("FORTH ERR: UNMATCHED DO");
+                    break;
+                }
+
+                let loopObj = { index: start, limit: limit };
+                loopStack.push(loopObj);
+
+                let loopFailed = false;
+                while (loopObj.index < loopObj.limit) {
+                    try {
+                        runForth(bodyTokens);
+                    } catch (err) {
+                        writeTerminal("ERR: " + err.message);
+                        loopFailed = true;
+                        break;
+                    }
+                    loopObj.index++;
+                }
+
+                loopStack.pop();
+                i = jIdx + 1;
+                if (loopFailed) break;
+                continue;
+            }
+
+            if (forthDictionary[upper] !== undefined) {
+                let entry = forthDictionary[upper];
+                if (typeof entry === "function") {
+                    entry();
+                } else if (Array.isArray(entry)) {
+                    runForth(entry);
+                }
+            } else {
+                let num = parseFloat(tok);
+                if (!isNaN(num)) {
+                    forthStack.push(num);
+                } else {
+                    writeTerminal("FORTH ERR: " + tok + "?");
+                    break;
+                }
+            }
+            i++;
+        }
+    }
+
+    function initTerminal() {
+        cls(0);
+        termBuffer = ["PANTASYA v1.0 + FORTH"];
+        lockToBottom = true;
+        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+        redrawTerminal();
+    }
+
+    function writeTerminal(text) {
+        let lines = String(text).split("\n");
+        lines.forEach(l => {
+            while(l.length > COLS) {
+                termBuffer.push(l.slice(0, COLS));
+                l = l.slice(COLS);
+            }
+            termBuffer.push(l);
+        });
+        lockToBottom = true;
+        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+        redrawTerminal();
+    }
+
+    function writeInlineTerminal(text) {
+        let str = String(text);
+        if (termBuffer.length === 0) {
+            termBuffer.push("");
+        }
+        termBuffer[termBuffer.length - 1] += str;
+        lockToBottom = true;
+        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+        redrawTerminal();
+    }
+
+    function getWrappedLines(str) {
+        let wrapped = [];
+        let s = String(str);
+        if (s.length === 0) return [""];
+        for (let i = 0; i < s.length; i += COLS) {
+            wrapped.push(s.slice(i, i + COLS));
+        }
+        return wrapped;
+    }
+
+    function getCombinedLines() {
+        let expandedBuffer = [];
+        for (let i = 0; i < termBuffer.length; i++) {
+            let wLines = getWrappedLines(termBuffer[i]);
+            for (let w = 0; w < wLines.length; w++) {
+                expandedBuffer.push(wLines[w]);
+            }
+        }
+        let fullPrompt = ">" + currentInput;
+        let cursorGlobalIdx = 1 + cursorPosition;
+        let paddedPrompt = fullPrompt;
+        
+        if (cursorGlobalIdx >= fullPrompt.length) {
+            paddedPrompt = fullPrompt + " ".repeat(cursorGlobalIdx - fullPrompt.length + 1);
+        }
+        
+        let promptLines = getWrappedLines(paddedPrompt);
+        promptStartIndex = expandedBuffer.length;
+        return expandedBuffer.concat(promptLines);
+    }
+
+    function redrawTerminal() {
+        let bgRgb = hexToRgb(PALETTE[currentBgColor]);
+        for (let i = 0; i < fb.data.length; i += 4) {
+            fb.data[i] = bgRgb.r;
+            fb.data[i+1] = bgRgb.g;
+            fb.data[i+2] = bgRgb.b;
+            fb.data[i+3] = 255;
+        }
+
+        let fullPrompt = ">" + currentInput;
+        let cursorGlobalIdx = 1 + cursorPosition; 
+        let cursorRowOffset = Math.floor(cursorGlobalIdx / COLS);
+        let cursorCol = cursorGlobalIdx % COLS;
+
+        let combined = getCombinedLines();
+        let maxScroll = Math.max(0, combined.length - ROWS);
+
+        if (lockToBottom) {
+            scrollOffset = maxScroll;
+        } else {
+            if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+            if (scrollOffset < 0) scrollOffset = 0;
+        }
+
+        for (let i = 0; i < ROWS; i++) {
+            let lineIdx = scrollOffset + i;
+            if (lineIdx < combined.length) {
+                let lineText = combined[lineIdx];
+                let isPromptLine = lineIdx >= promptStartIndex;
+                printTextDirect(lineText, 0, i * 8, isPromptLine ? 5 : 13);
+            }
+        }
+
+        if (cursorVisible) {
+            let visiblePromptStartLine = promptStartIndex - scrollOffset;
+            let targetRow = visiblePromptStartLine + cursorRowOffset;
+
+            if (targetRow >= 0 && targetRow < ROWS) {
+                printCharDirect(219, cursorCol * 8, targetRow * 8, 12); 
+            }
+        }
+
+        for (let y = 0; y < 128; y++) {
+            for (let x = 0; x < 128; x++) {
+                let idx = y * 128 + x;
+                if (pixelDrawn[idx]) {
+                    drawPixelDirect(x, y, pixelBuffer[idx]);
+                }
+            }
+        }
+
+        updateScreen();
+    }
+
+    hiddenInput.addEventListener('keydown', (e) => {
+        cursorVisible = true;
+        if (e.key === 'Enter') {
+            let cmd = currentInput.trim();
+            writeTerminal(">" + currentInput);
+            writeTerminal(""); // Print newline after enter command
+            if (cmd) {
+                commandHistory.push(currentInput);
+            }
+            currentInput = ""; 
+            cursorPosition = 0; 
+            historyIndex = commandHistory.length;
+            lockToBottom = true;
+            if (cmd) {
+                try { 
+                    runForth(cmd); 
+                    writeTerminal("OK"); // Print OK after successful run
+                } catch (err) { 
+                    writeTerminal("ERR: " + err.message); 
+                }
+            } else { 
+                redrawTerminal(); 
+            }
+            e.preventDefault();
+        } else if (e.key === 'Backspace') {
+            lockToBottom = true;
+            if (cursorPosition > 0) {
+                currentInput = currentInput.slice(0, cursorPosition - 1) + currentInput.slice(cursorPosition);
+                cursorPosition--;
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'Delete') {
+            lockToBottom = true;
+            if (cursorPosition < currentInput.length) {
+                currentInput = currentInput.slice(0, cursorPosition) + currentInput.slice(cursorPosition + 1);
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowLeft') {
+            if (cursorPosition > 0) {
+                cursorPosition--;
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowRight') {
+            if (cursorPosition < currentInput.length) {
+                cursorPosition++;
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowUp') {
+            lockToBottom = true;
+            if (commandHistory.length > 0) {
+                if (historyIndex > 0) {
+                    historyIndex--;
+                } else {
+                    historyIndex = 0;
+                }
+                currentInput = commandHistory[historyIndex];
+                cursorPosition = currentInput.length;
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowDown') {
+            lockToBottom = true;
+            if (commandHistory.length > 0) {
+                if (historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    currentInput = commandHistory[historyIndex];
+                    cursorPosition = currentInput.length;
+                } else {
+                    historyIndex = commandHistory.length;
+                    currentInput = "";
+                    cursorPosition = 0;
+                }
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'PageUp') {
+            lockToBottom = false;
+            scrollOffset = Math.max(0, scrollOffset - ROWS);
+            redrawTerminal();
+            e.preventDefault();
+        } else if (e.key === 'PageDown') {
+            let maxScroll = Math.max(0, getCombinedLines().length - ROWS);
+            scrollOffset = Math.min(maxScroll, scrollOffset + ROWS);
+            if (scrollOffset >= maxScroll) {
+                lockToBottom = true;
+            }
+            redrawTerminal();
+            e.preventDefault();
+        } else if (e.key.length === 1) {
+            lockToBottom = true;
+            currentInput = currentInput.slice(0, cursorPosition) + e.key + currentInput.slice(cursorPosition);
+            cursorPosition++; 
+            redrawTerminal(); 
+            e.preventDefault();
+        }
+    });
+
+    initTerminal();
+</script>
+</body>
+</html>

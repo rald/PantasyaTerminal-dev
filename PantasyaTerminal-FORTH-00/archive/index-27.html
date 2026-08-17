@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pantasya Terminal</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffcd75;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h2 { font-size: 14px; margin: 5px; color: #73eff7; }
+        #console-container {
+            border: 4px solid #29366f;
+            background: #1a1c2c;
+            width: 512px;
+            height: 512px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        canvas {
+            width: 512px;
+            height: 512px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+        }
+        #hidden-input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>PANTASYA TERMINAL</h2>
+    <div id="console-container" onclick="document.getElementById('hidden-input').focus()">
+        <canvas id="screen" width="128" height="128"></canvas>
+        <input type="text" id="hidden-input" autofocus autocomplete="off" spellcheck="false">
+    </div>
+
+<script src="palette.js"></script>
+<script src="font.js"></script>
+
+<script>
+    const canvas = document.getElementById('screen');
+    const ctx = canvas.getContext('2d');
+    const hiddenInput = document.getElementById('hidden-input');
+
+    let fb = ctx.createImageData(128, 128);
+    let currentBgColor = 0;
+    let cursorVisible = true;
+
+    // Cursor blink timer
+    setInterval(() => {
+        cursorVisible = !cursorVisible;
+        redrawTerminal();
+    }, 500);
+
+    function cls(col = 0) {
+        currentBgColor = col % 16;
+        let rgb = hexToRgb(PALETTE[currentBgColor]);
+        for (let i = 0; i < fb.data.length; i += 4) {
+            fb.data[i] = rgb.r;
+            fb.data[i+1] = rgb.g;
+            fb.data[i+2] = rgb.b;
+            fb.data[i+3] = 255;
+        }
+    }
+
+    function pset(x, y, col) {
+        x = Math.floor(x); y = Math.floor(y);
+        if (x < 0 || x > 127 || y < 0 || y > 127) return;
+        let idx = (y * 128 + x) * 4;
+        let rgb = hexToRgb(PALETTE[col % 16]);
+        fb.data[idx] = rgb.r;
+        fb.data[idx+1] = rgb.g;
+        fb.data[idx+2] = rgb.b;
+        fb.data[idx+3] = 255;
+    }
+
+    function updateScreen() {
+        ctx.putImageData(fb, 0, 0);
+    }
+
+    function hexToRgb(hex) {
+        let bigint = parseInt(hex.slice(1), 16);
+        return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+    }
+
+    function printChar(ch, x, y, col = 12) {
+        let code = typeof ch === 'string' ? ch.charCodeAt(0) : ch;
+        let glyph = FONT_DOS_8X8[code] || FONT_DOS_8X8[63];
+        if (!glyph) return;
+        for (let row = 0; row < 8; row++) {
+            let bits = glyph[row];
+            for (let bit = 0; bit < 8; bit++) {
+                if ((bits >> (7 - bit)) & 1) {
+                    pset(x + bit, y + row, col);
+                }
+            }
+        }
+    }
+
+    function printText(str, x, y, col = 12) {
+        str = String(str);
+        let cx = x;
+        let cy = y;
+        for (let i = 0; i < str.length; i++) {
+            if (cx + 8 > 128) { cx = 0; cy += 8; }
+            if (cy + 8 > 128) break; 
+            printChar(str[i], cx, cy, col);
+            cx += 8;
+        }
+    }
+
+    const COLS = 16;
+    const ROWS = 16; 
+    let termBuffer = [];
+    let scrollOffset = 0;
+    let currentInput = "";
+    let cursorPosition = 0;
+    let commandHistory = [];
+    let historyIndex = -1;
+    let promptStartIndex = 0;
+
+    let forthStack = [];
+    let loopStack = []; 
+    let forthDictionary = {
+        "+": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a + b); },
+        "-": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a - b); },
+        "*": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a * b); },
+        "/": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(a / b); },
+        ".": () => { let val = forthStack.pop(); writeTerminal(val !== undefined ? String(val) : "STACK EMPTY"); },
+        ".S": () => { writeTerminal("<" + forthStack.length + "> " + forthStack.join(" ")); },
+        "DUP": () => { if (forthStack.length > 0) forthStack.push(forthStack[forthStack.length - 1]); },
+        "DROP": () => { forthStack.pop(); },
+        "SWAP": () => { let b = forthStack.pop(), a = forthStack.pop(); forthStack.push(b, a); },
+        
+        "I": () => {
+            if (loopStack.length > 0) forthStack.push(loopStack[loopStack.length - 1].index);
+            else writeTerminal("FORTH ERR: NO ACTIVE LOOP FOR I");
+        },
+        "J": () => {
+            if (loopStack.length > 1) forthStack.push(loopStack[loopStack.length - 2].index);
+            else writeTerminal("FORTH ERR: NO NESTED LOOP FOR J");
+        },
+        "EMIT": () => {
+            let val = forthStack.pop();
+            if (val !== undefined) {
+                writeTerminal(String.fromCharCode(val));
+            } else {
+                writeTerminal("FORTH ERR: STACK UNDERFLOW");
+            }
+        },
+        "HELP": () => {
+            writeTerminal("CMDS: HELP, CLS, CHARS, EMIT");
+        },
+        "CHARS": () => {
+            let line = "";
+            for (let i = 0; i < 256; i++) {
+                line += String.fromCharCode(i);
+                if (i % 16 === 15) { 
+                    writeTerminal(line); 
+                    line = ""; 
+                }
+            }
+        },
+        "CLS": () => { 
+            cls(0); termBuffer = []; scrollOffset = 0; redrawTerminal();
+        }
+    };
+
+    let compiling = false;
+    let newWordName = "";
+    let newWordTokens = [];
+
+    function runForth(tokensOrString) {
+        let tokens = typeof tokensOrString === 'string' ? tokensOrString.trim().split(/\s+/) : tokensOrString;
+        
+        let i = 0;
+        while (i < tokens.length) {
+            let tok = tokens[i];
+            if (!tok) { i++; continue; }
+            let upper = tok.toUpperCase();
+
+            if (compiling) {
+                if (upper === ";") {
+                    forthDictionary[newWordName] = [...newWordTokens];
+                    compiling = false;
+                    writeTerminal("compiled: " + newWordName);
+                } else {
+                    newWordTokens.push(tok);
+                }
+                i++;
+                continue;
+            }
+
+            if (upper === ":") {
+                compiling = true;
+                newWordName = tokens[i + 1].toUpperCase();
+                newWordTokens = [];
+                i += 2;
+                continue;
+            }
+
+            if (upper === "DO") {
+                let start = forthStack.pop();
+                let limit = forthStack.pop();
+                if (limit === undefined || start === undefined) {
+                    writeTerminal("FORTH ERR: STACK UNDERFLOW FOR DO");
+                    break;
+                }
+
+                let bodyTokens = [];
+                let nestLevel = 1;
+                let jIdx = i + 1;
+                while (jIdx < tokens.length) {
+                    let nextTok = tokens[jIdx].toUpperCase();
+                    if (nextTok === "DO") nestLevel++;
+                    else if (nextTok === "LOOP") {
+                        nestLevel--;
+                        if (nestLevel === 0) break;
+                    }
+                    bodyTokens.push(tokens[jIdx]);
+                    jIdx++;
+                }
+
+                if (nestLevel > 0) {
+                    writeTerminal("FORTH ERR: UNMATCHED DO");
+                    break;
+                }
+
+                let loopObj = { index: start, limit: limit };
+                loopStack.push(loopObj);
+
+                let loopFailed = false;
+                while (loopObj.index < loopObj.limit) {
+                    try {
+                        runForth(bodyTokens);
+                    } catch (err) {
+                        writeTerminal("ERR: " + err.message);
+                        loopFailed = true;
+                        break;
+                    }
+                    loopObj.index++;
+                }
+
+                loopStack.pop();
+                i = jIdx + 1;
+                if (loopFailed) break;
+                continue;
+            }
+
+            if (forthDictionary[upper] !== undefined) {
+                let entry = forthDictionary[upper];
+                if (typeof entry === "function") {
+                    entry();
+                } else if (Array.isArray(entry)) {
+                    runForth(entry);
+                }
+            } else {
+                let num = parseFloat(tok);
+                if (!isNaN(num)) {
+                    forthStack.push(num);
+                } else {
+                    writeTerminal("FORTH ERR: " + tok + "?");
+                    break;
+                }
+            }
+            i++;
+        }
+    }
+
+    function initTerminal() {
+        cls(0);
+        termBuffer = ["PANTASYA v1.0 + FORTH"];
+        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+        redrawTerminal();
+    }
+
+    function writeTerminal(text) {
+        let lines = String(text).split("\n");
+        lines.forEach(l => {
+            while(l.length > COLS) {
+                termBuffer.push(l.slice(0, COLS));
+                l = l.slice(COLS);
+            }
+            termBuffer.push(l);
+        });
+        scrollOffset = Math.max(0, getCombinedLines().length - ROWS);
+        redrawTerminal();
+    }
+
+    function getWrappedLines(str) {
+        let wrapped = [];
+        let s = String(str);
+        if (s.length === 0) return [""];
+        for (let i = 0; i < s.length; i += COLS) {
+            wrapped.push(s.slice(i, i + COLS));
+        }
+        return wrapped;
+    }
+
+    function getCombinedLines() {
+        let expandedBuffer = [];
+        for (let i = 0; i < termBuffer.length; i++) {
+            let wLines = getWrappedLines(termBuffer[i]);
+            for (let w = 0; w < wLines.length; w++) {
+                expandedBuffer.push(wLines[w]);
+            }
+        }
+        let fullPrompt = ">" + currentInput;
+        let cursorGlobalIdx = 1 + cursorPosition;
+        let paddedPrompt = fullPrompt;
+        
+        if (cursorGlobalIdx >= fullPrompt.length) {
+            paddedPrompt = fullPrompt + " ".repeat(cursorGlobalIdx - fullPrompt.length + 1);
+        }
+        
+        let promptLines = getWrappedLines(paddedPrompt);
+        promptStartIndex = expandedBuffer.length;
+        return expandedBuffer.concat(promptLines);
+    }
+
+    function redrawTerminal() {
+        cls(currentBgColor);
+
+        let fullPrompt = ">" + currentInput;
+        let cursorGlobalIdx = 1 + cursorPosition; 
+        let cursorRowOffset = Math.floor(cursorGlobalIdx / COLS);
+        let cursorCol = cursorGlobalIdx % COLS;
+
+        let combined = getCombinedLines();
+        let cursorGlobalRow = promptStartIndex + cursorRowOffset;
+
+        if (cursorGlobalRow < scrollOffset) {
+            scrollOffset = cursorGlobalRow;
+        } else if (cursorGlobalRow >= scrollOffset + ROWS) {
+            scrollOffset = cursorGlobalRow - ROWS + 1;
+        }
+
+        let maxScroll = Math.max(0, combined.length - ROWS);
+        if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+        if (scrollOffset < 0) scrollOffset = 0;
+
+        for (let i = 0; i < ROWS; i++) {
+            let lineIdx = scrollOffset + i;
+            if (lineIdx < combined.length) {
+                let lineText = combined[lineIdx];
+                let isPromptLine = lineIdx >= promptStartIndex;
+                printText(lineText, 0, i * 8, isPromptLine ? 5 : 13);
+            }
+        }
+
+        // Draw Blinking Cursor at Current Input Position
+        if (cursorVisible) {
+            let visiblePromptStartLine = promptStartIndex - scrollOffset;
+            let targetRow = visiblePromptStartLine + cursorRowOffset;
+
+            if (targetRow >= 0 && targetRow < ROWS) {
+                printChar(219, cursorCol * 8, targetRow * 8, 12); 
+            }
+        }
+
+        updateScreen();
+    }
+
+    hiddenInput.addEventListener('keydown', (e) => {
+        cursorVisible = true;
+        if (e.key === 'Enter') {
+            let cmd = currentInput.trim();
+            writeTerminal(">" + currentInput);
+            if (cmd) commandHistory.push(currentInput);
+            currentInput = ""; cursorPosition = 0; historyIndex = commandHistory.length;
+            if (cmd) {
+                try { runForth(cmd); } catch (err) { writeTerminal("ERR: " + err.message); }
+            } else { redrawTerminal(); }
+            e.preventDefault();
+        } else if (e.key === 'Backspace') {
+            if (cursorPosition > 0) {
+                currentInput = currentInput.slice(0, cursorPosition - 1) + currentInput.slice(cursorPosition);
+                cursorPosition--;
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowLeft') {
+            if (cursorPosition > 0) {
+                cursorPosition--;
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key === 'ArrowRight') {
+            if (cursorPosition < currentInput.length) {
+                cursorPosition++;
+                redrawTerminal();
+            }
+            e.preventDefault();
+        } else if (e.key.length === 1) {
+            currentInput = currentInput.slice(0, cursorPosition) + e.key + currentInput.slice(cursorPosition);
+            cursorPosition++; redrawTerminal(); e.preventDefault();
+        }
+    });
+
+    initTerminal();
+</script>
+</body>
+</html>
